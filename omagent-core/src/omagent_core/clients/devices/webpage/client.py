@@ -2,9 +2,11 @@ import html
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from time import sleep
 
+import requests
 from PIL import Image
 
 os.environ['GRADIO_TEMP_DIR'] = os.getcwd()
@@ -426,8 +428,48 @@ class WebpageClient:
                                 "content": {"path": message_item["content"]},
                             }
                         )
+                    elif message_item["type"] == MessageType.VIDEO_URL.value:
+                        video_file = tempfile.NamedTemporaryFile(delete=False)
+                        res = requests.get(message_item["content"], stream=True)
+                        with open(video_file, 'wb') as f1:
+                            for chunk in res.iter_content(chunk_size=102400):
+                                f1.write(chunk)
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": gr.Video(video_file),
+                            }
+                        )
+                    elif message_item["type"] == MessageType.VIDEO_PATH.value:
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": gr.Video(message_item["content"]),
+                            }
+                        )
                     else:
-                        if incomplete_flag:
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": gr.Textbox(f"An unsupported message type was received: "
+                                                      f"{message_item['type']}"),
+                            }
+                        )
+                    if incomplete_flag:
+                        self._incomplete_message = (
+                                self._incomplete_message + message_item["content"]
+                        )
+                        if history and history[-1]["role"] == "assistant":
+                            history[-1]["content"] = self._incomplete_message
+                        else:
+                            history.append(
+                                {
+                                    "role": "assistant",
+                                    "content": self._incomplete_message,
+                                }
+                            )
+                    else:
+                        if self._incomplete_message != "":
                             self._incomplete_message = (
                                     self._incomplete_message + message_item["content"]
                             )
@@ -440,28 +482,14 @@ class WebpageClient:
                                         "content": self._incomplete_message,
                                     }
                                 )
+                            self._incomplete_message = ""
                         else:
-                            if self._incomplete_message != "":
-                                self._incomplete_message = (
-                                        self._incomplete_message + message_item["content"]
-                                )
-                                if history and history[-1]["role"] == "assistant":
-                                    history[-1]["content"] = self._incomplete_message
-                                else:
-                                    history.append(
-                                        {
-                                            "role": "assistant",
-                                            "content": self._incomplete_message,
-                                        }
-                                    )
-                                self._incomplete_message = ""
-                            else:
-                                history.append(
-                                    {
-                                        "role": "assistant",
-                                        "content": message_item["content"],
-                                    }
-                                )
+                            history.append(
+                                {
+                                    "role": "assistant",
+                                    "content": message_item["content"],
+                                }
+                            )
 
                     yield history
 
