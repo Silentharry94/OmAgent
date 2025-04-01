@@ -309,10 +309,7 @@ class WebpageClient:
         return result
     
     def add_message(self, history, message, state):
-        print(f'history: {history}')
-        print(f'message: {message}')
         question = message.get('text', '')
-        files = message.get('files', [])
         if isinstance(state, gr.State):
             if state.value.get('current_video') is None:
                 history.append({"role": "user", "content": message})
@@ -353,7 +350,6 @@ class WebpageClient:
             f"{self._workflow_instance_id}_input",
             {"payload": json.dumps(result, ensure_ascii=False)},
         )
-        logging.info(f'after history: {history}')
         return history, gr.MultimodalTextbox(value=None, interactive=False)
     
     def add_processor_message(self, history, message):
