@@ -389,6 +389,7 @@ class WebpageClient:
         running_stream_name = f"{self._workflow_instance_id}_running"
         self._check_redis_stream_exist(stream_name, group_name)
         self._check_redis_stream_exist(running_stream_name, group_name)
+        
         while True:
             # read running stream
             running_messages = self._get_redis_stream_message(
@@ -406,7 +407,7 @@ class WebpageClient:
                     )
                     history.append({"role": "assistant", "content": formatted_message})
                     yield history
-
+                    
                     container.get_connector("redis_stream_client")._client.xack(
                         running_stream_name, group_name, message_id
                     )
@@ -415,7 +416,7 @@ class WebpageClient:
                 group_name, consumer_name, stream_name
             )
             finish_flag = False
-
+            
             for stream, message_list in messages:
                 for message_id, message in message_list:
                     incomplete_flag = False
@@ -425,83 +426,86 @@ class WebpageClient:
                     if payload_data["content_status"] == ContentStatus.INCOMPLETE.value:
                         incomplete_flag = True
                     message_item = payload_data["message"]
-                    if message_item["type"] == MessageType.IMAGE_URL.value:
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": {"path": message_item["content"]},
-                            }
-                        )
-                    elif message_item["type"] == MessageType.VIDEO_URL.value:
-                        filename = os.path.basename(urlparse(unquote_plus(message_item["content"])).path)
-                        video_file = os.path.join(callback_root_path, filename)
-                        res = requests.get(message_item["content"], stream=True)
-                        with open(video_file, 'wb') as f:
-                            for chunk in res.iter_content(chunk_size=102400):
-                                f.write(chunk)
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": gr.Video(video_file),
-                            }
-                        )
-                    elif message_item["type"] == MessageType.VIDEO_PATH.value:
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": gr.Video(message_item["content"]),
-                            }
-                        )
-                    else:
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": gr.Textbox(f"An unsupported message type was received: "
-                                                      f"{message_item['type']}"),
-                            }
-                        )
-                    if incomplete_flag:
-                        self._incomplete_message = (
-                                self._incomplete_message + message_item["content"]
-                        )
-                        if history and history[-1]["role"] == "assistant":
-                            history[-1]["content"] = self._incomplete_message
-                        else:
+                    if payload_data["code"] == 0:
+                        if message_item["type"] == MessageType.IMAGE_URL.value:
                             history.append(
                                 {
                                     "role": "assistant",
-                                    "content": self._incomplete_message,
+                                    "content": {"path": message_item["content"]},
                                 }
                             )
-                    else:
-                        if self._incomplete_message != "":
-                            self._incomplete_message = (
-                                    self._incomplete_message + message_item["content"]
+                        elif message_item["type"] == MessageType.VIDEO_URL.value:
+                            filename = os.path.basename(urlparse(unquote_plus(message_item["content"])).path)
+                            video_file = os.path.join(callback_root_path, filename)
+                            res = requests.get(message_item["content"], stream=True)
+                            with open(video_file, 'wb') as f:
+                                for chunk in res.iter_content(chunk_size=102400):
+                                    f.write(chunk)
+                            history.append(
+                                {
+                                    "role": "assistant",
+                                    "content": gr.Video(video_file),
+                                }
                             )
-                            if history and history[-1]["role"] == "assistant":
-                                history[-1]["content"] = self._incomplete_message
-                            else:
-                                history.append(
-                                    {
-                                        "role": "assistant",
-                                        "content": self._incomplete_message,
-                                    }
+                        elif message_item["type"] == MessageType.VIDEO_PATH.value:
+                            history.append(
+                                {
+                                    "role": "assistant",
+                                    "content": gr.Video(message_item["content"]),
+                                }
+                            )
+                        else:
+                            if incomplete_flag:
+                                self._incomplete_message = (
+                                        self._incomplete_message + message_item["content"]
                                 )
-                            self._incomplete_message = ""
-                        else:
-                            history.append(
-                                {
-                                    "role": "assistant",
-                                    "content": message_item["content"],
-                                }
-                            )
-
+                                if history and history[-1]["role"] == "assistant":
+                                    history[-1]["content"] = self._incomplete_message
+                                else:
+                                    history.append(
+                                        {
+                                            "role": "assistant",
+                                            "content": self._incomplete_message,
+                                        }
+                                    )
+                            else:
+                                if self._incomplete_message != "":
+                                    self._incomplete_message = (
+                                            self._incomplete_message + message_item["content"]
+                                    )
+                                    if history and history[-1]["role"] == "assistant":
+                                        history[-1]["content"] = self._incomplete_message
+                                    else:
+                                        history.append(
+                                            {
+                                                "role": "assistant",
+                                                "content": self._incomplete_message,
+                                            }
+                                        )
+                                    self._incomplete_message = ""
+                                else:
+                                    history.append(
+                                        {
+                                            "role": "assistant",
+                                            "content": message_item["content"],
+                                        }
+                                    )
+                    else:
+                        formatted_message = (
+                            f'<pre class="error-message">{payload_data["error_info"]}</pre>'
+                        )
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": formatted_message,
+                            }
+                        )
                     yield history
-
+                    
                     container.get_connector("redis_stream_client")._client.xack(
                         stream_name, group_name, message_id
                     )
-
+                    
                     # check finish flag
                     if (
                             "interaction_type" in payload_data
@@ -515,7 +519,7 @@ class WebpageClient:
                     ):
                         self._workflow_instance_id = None
                         finish_flag = True
-
+            
             if finish_flag:
                 break
             sleep(0.01)
