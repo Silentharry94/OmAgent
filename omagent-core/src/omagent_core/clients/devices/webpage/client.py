@@ -3,15 +3,19 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from time import sleep
+from urllib.parse import unquote_plus, urlparse
 
 import requests
 from PIL import Image
 
 os.environ['GRADIO_TEMP_DIR'] = os.getcwd()
 video_root_path = os.path.join(os.getcwd(), 'video_root')
+callback_root_path = os.path.join(os.getcwd(), 'callback_root')
 os.makedirs(video_root_path, exist_ok=True)
+os.makedirs(callback_root_path, exist_ok=True)
 from omagent_core.clients.devices.app.callback import AppCallback
 from omagent_core.clients.devices.app.input import AppInput
 from omagent_core.clients.devices.app.schemas import ContentStatus, MessageType
@@ -429,11 +433,12 @@ class WebpageClient:
                             }
                         )
                     elif message_item["type"] == MessageType.VIDEO_URL.value:
-                        video_file = tempfile.NamedTemporaryFile(delete=False)
+                        filename = os.path.basename(urlparse(unquote_plus(message_item["content"])).path)
+                        video_file = os.path.join(callback_root_path, filename)
                         res = requests.get(message_item["content"], stream=True)
-                        with open(video_file, 'wb') as f1:
+                        with open(video_file, 'wb') as f:
                             for chunk in res.iter_content(chunk_size=102400):
-                                f1.write(chunk)
+                                f.write(chunk)
                         history.append(
                             {
                                 "role": "assistant",
